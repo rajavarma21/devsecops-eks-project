@@ -1,0 +1,14 @@
+{
+  "name": "devsecops-backend",
+  "version": "1.0.0",
+  "description": "Backend API for DevSecOps EKS project",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "redis": "^4.7.0"
+  }
+}
