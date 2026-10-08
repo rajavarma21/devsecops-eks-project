@@ -1,7 +1,10 @@
 const express = require("express");
+const cors = require("cors");
 const { createClient } = require("redis");
 
 const app = express();
+
+app.use(cors());
 
 const PORT = process.env.PORT || 5000;
 const REDIS_HOST = process.env.REDIS_HOST || "localhost";
