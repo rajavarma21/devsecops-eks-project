@@ -1,8 +1,11 @@
+
 pipeline { 
     agent any
 
     environment { 
-        SCAN_DIR = 'application' 
+        SCAN_DIR      = 'application' 
+        TRIVY_VERSION  = '0.48.3' 
+        TRIVY_ARCHIVE  = 'trivy_0.48.3_Linux-64bit.tar.gz' 
     }
 
     stages { 
@@ -17,25 +20,35 @@ pipeline {
             steps { 
                 echo 'Executing Aqua Security Trivy filesystem scan...'
                 script { 
+                    // Utilizing double-quoted string literals (""") to allow native Groovy variable pass-through
                     sh """ 
-                    set -e
-                    rm -f trivy_*.tar.gz trivy
-                    
-                    # Corrected absolute release endpoint URLs mapping structural hyphens
+                    set -eu
+                    rm -f trivy trivy_*.tar.gz
+
+                    echo "Downloading Trivy v\${TRIVY_VERSION}..."
                     curl -fL --retry 3 \
-                      -o trivy_0.48.3_Linux-64bit.tar.gz \
-                      https://github.com
-                    
-                    tar -xzf trivy_0.48.3_Linux-64bit.tar.gz trivy
+                      -o "\${TRIVY_ARCHIVE}" \
+                      "https://github.com/aquasecurity/trivy/releases/download/v\${TRIVY_VERSION}/\${TRIVY_ARCHIVE}"
+
+                    echo "Validating downloaded archive..." 
+                    tar -tzf "\${TRIVY_ARCHIVE}" >/dev/null
+
+                    echo "Extracting Trivy..." 
+                    tar -xzf "\${TRIVY_ARCHIVE}" trivy
                     chmod +x trivy
+
                     ./trivy --version
-                    
+
+                    if [ ! -d "\${SCAN_DIR}" ]; then
+                        echo "ERROR: Target scan directory '\${SCAN_DIR}' does not exist inside workspace context."
+                        exit 1
+                    fi
+
+                    echo "Scanning target perimeter path: \${SCAN_DIR}..." 
                     ./trivy fs \
                       --severity HIGH,CRITICAL \
                       --exit-code 1 \
-                      "${SCAN_DIR}"
-                    
-                    rm -f trivy_*.tar.gz trivy 
+                      "\${SCAN_DIR}" 
                     """ 
                 } 
             } 
@@ -53,10 +66,10 @@ pipeline {
             sh 'rm -f trivy trivy_*.tar.gz || true' 
         }
         success { 
-            echo 'Pipeline completed successfully!' 
+            echo 'Pipeline completed successfully! Security quality gate conditions matched.' 
         }
         failure { 
-            echo 'Pipeline failed. Check the Jenkins console output.' 
+            echo 'Pipeline execution termination encountered. Inspect the Jenkins console logs for details.' 
         } 
     } 
 }
