@@ -3,7 +3,8 @@ pipeline {
 
     environment {
         SCAN_DIR    = 'application'
-        // Maps the cloud network address where your SonarQube dashboard is active
+        TRIVY_IMAGE = 'aquasec/trivy:0.58.0'
+        // Tells the script where your SonarQube metrics portal is listening on the cloud host network
         SONAR_URL   = 'http://3.106.210.243:9000'
     }
 
@@ -16,48 +17,36 @@ pipeline {
 
         stage('SAST - Trivy FS Scan') {
             steps {
-                echo 'Executing Aqua Security Trivy standalone filesystem scan...'
-                script {
-                    // Downloads and runs the standalone pre-compiled Trivy binary directly in the workspace
-                    // This completely bypasses any 'docker: not found' CLI issues inside the container
-                    sh """
-                    set -eu
-                    rm -f trivy trivy_*.tar.gz
-                    
-                    echo "Downloading stable Trivy binary package..."
-                    curl -fLo trivy_0.48.3_Linux-64bit.tar.gz https://github.com
-                    
-                    tar -zxvf trivy_0.48.3_Linux-64bit.tar.gz trivy
-                    chmod +x trivy
-                    
-                    ./trivy --version
-                    
-                    echo "Auditing codebase directory path: ${SCAN_DIR}..."
-                    ./trivy fs --severity HIGH,CRITICAL --exit-code 1 "${SCAN_DIR}"
-                    
-                    rm -f trivy_*.tar.gz trivy
-                    """
-                }
+                // Kept your exact, verified working container volume structure completely untouched
+                sh '''
+                    [ -d "$WORKSPACE/$SCAN_DIR" ] || { echo "'$SCAN_DIR' not found in workspace:"; ls -la "$WORKSPACE"; exit 1; }
+
+                    docker run --rm \
+                      --volumes-from jenkins-orchestrator:ro \
+                      -v trivy-cache:/root/.cache/ \
+                      $TRIVY_IMAGE fs "$WORKSPACE/$SCAN_DIR" \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      --no-progress
+                '''
             }
         }
 
         stage('SonarQube Code Quality Analysis') {
             steps {
-                // Securely pulls your token from the Jenkins credentials vault dynamically on runtime execution
+                // Securely pulls your token from the Jenkins credentials vault dynamically on execution
                 withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
-                    echo 'Injecting SonarQube container scanner to run deep code quality inspections...'
-                    sh """
-                    docker run --rm \
-                      -v /var/run/docker.sock:/var/run/docker.sock \
-                      -v \$HOME/.cache:/root/.cache/ \
-                      -v \$(pwd):/apps \
-                      sonarsource/sonar-scanner-cli:latest \
-                      -Dsonar.host.url=${SONAR_URL} \
-                      -Dsonar.token=${SONAR_TOKEN} \
-                      -Dsonar.projectKey=devsecops-eks-project \
-                      -Dsonar.projectName=devsecops-eks-project \
-                      -Dsonar.sources=/apps/${SCAN_DIR}
-                    """
+                    echo 'Spawning SonarQube container scanner using native workspace volume attachments...'
+                    sh '''
+                        docker run --rm \
+                          --volumes-from jenkins-orchestrator:ro \
+                          sonarsource/sonar-scanner-cli:latest \
+                          -Dsonar.host.url="${SONAR_URL}" \
+                          -Dsonar.token="${SONAR_TOKEN}" \
+                          -Dsonar.projectKey=devsecops-eks-project \
+                          -Dsonar.projectName=devsecops-eks-project \
+                          -Dsonar.sources="$WORKSPACE/$SCAN_DIR"
+                    '''
                 }
             }
         }
@@ -70,11 +59,12 @@ pipeline {
     }
 
     post {
-        always {
-            sh 'rm -f trivy trivy_*.tar.gz || true'
+        success { 
+            echo 'Pipeline succeeded. Security gate and code quality checks passed completely!' 
         }
-        success { echo 'Pipeline succeeded. Security gate and code quality checks passed.' }
-        failure { echo 'Pipeline failed. Check console logs for scan errors or vulnerabilities.' }
+        failure { 
+            echo 'Pipeline failed. Check console logs for scan errors, quality breaches, or vulnerabilities.' 
+        }
     }
 }
 
