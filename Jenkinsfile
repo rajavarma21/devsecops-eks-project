@@ -17,7 +17,7 @@ pipeline {
             steps {
                 echo 'Executing Aqua Security Trivy static application binary check...'
                 script {
-                    // Downloads the absolute, compiled standalone binary package via curl directly into the workspace
+                    // Downloads the absolute, researched standalone release binary archive straight from the release stream
                     sh """
                     rm -f trivy_*.tar.gz trivy
                     curl -fLo trivy_0.48.3_Linux-64bit.tar.gz https://github.com
@@ -36,4 +36,5 @@ pipeline {
         }
     }
 }
+
 
