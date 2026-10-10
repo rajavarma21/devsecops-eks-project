@@ -15,10 +15,11 @@ pipeline {
 
         stage('Static Application Security Testing (SAST)') {
             steps {
-                echo 'Triggering security scan engine via standalone pipeline execution...'
+                echo 'Executing Aqua Security Trivy static application binary check...'
                 script {
-                    // Downloads and executes Trivy natively inside the workspace without requiring Docker CLI inside Jenkins
+                    // Downloads the absolute, compiled standalone binary archive directly to eliminate host system dependencies
                     sh """
+                    rm -f trivy_*.tar.gz trivy
                     curl -sfL https://githubusercontent.com | sh -s -- -b .
                     ./trivy fs ${SCAN_DIR} --severity HIGH,CRITICAL
                     """
