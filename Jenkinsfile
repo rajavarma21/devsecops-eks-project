@@ -2,31 +2,30 @@ pipeline {
     agent any
 
     environment {
-        SCAN_DIR = 'application'
+        SCAN_DIR    = 'application'
+        TRIVY_IMAGE = 'aquasec/trivy:0.58.0'
     }
 
     stages {
         stage('Checkout Codebase') {
             steps {
-                echo 'Pulling the latest codebase definitions from the portfolio repository...'
                 checkout scm
             }
         }
 
-        stage('Static Application Security Testing (SAST)') {
+        stage('SAST - Trivy FS Scan') {
             steps {
-                echo 'Spawning isolated Aqua Security Trivy container to scan code filesystem...'
-                script {
-                    // Pulls the verified container engine directly to audit the mounted workspace files
-                    // Bypasses local curl/tar package binary issues entirely
-                    sh """
+                sh '''
+                    [ -d "$WORKSPACE/$SCAN_DIR" ] || { echo "'$SCAN_DIR' not found in workspace:"; ls -la "$WORKSPACE"; exit 1; }
+
                     docker run --rm \
-                      -v /var/run/docker.sock:/var/run/docker.sock \
-                      -v \$HOME/.cache:/root/.cache/ \
-                      -v \$(pwd):/apps \
-                      aquasec/trivy:latest fs /apps/${SCAN_DIR} --severity HIGH,CRITICAL --exit-code 1
-                    """
-                }
+                      --volumes-from jenkins-orchestrator:ro \
+                      -v trivy-cache:/root/.cache/ \
+                      $TRIVY_IMAGE fs "$WORKSPACE/$SCAN_DIR" \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      --no-progress
+                '''
             }
         }
 
@@ -38,12 +37,7 @@ pipeline {
     }
 
     post {
-        success {
-            echo 'Pipeline executed successfully! Security quality gate checks passed.'
-        }
-        failure {
-            echo 'Pipeline run failed. Review the console logs for dependency or code vulnerability failures.'
-        }
+        success { echo 'Pipeline succeeded. Security gate passed.' }
+        failure { echo 'Pipeline failed. Check console logs for scan errors or vulnerabilities.' }
     }
 }
-
