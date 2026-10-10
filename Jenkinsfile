@@ -17,10 +17,10 @@ pipeline {
             steps {
                 echo 'Executing Aqua Security Trivy static application binary check...'
                 script {
-                    // Downloads the absolute, compiled standalone binary package directly to eliminate host system redirects
+                    // Downloads the absolute, compiled standalone binary package via curl directly into the workspace
                     sh """
                     rm -f trivy_*.tar.gz trivy
-                    wget https://github.com
+                    curl -fLo trivy_0.48.3_Linux-64bit.tar.gz https://github.com
                     tar -zxvf trivy_0.48.3_Linux-64bit.tar.gz trivy
                     ./trivy fs ${SCAN_DIR} --severity HIGH,CRITICAL
                     rm -f trivy_*.tar.gz
