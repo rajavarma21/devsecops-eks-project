@@ -15,9 +15,13 @@ pipeline {
 
         stage('Static Application Security Testing (SAST)') {
             steps {
-                echo 'Triggering security scan engine against your application file structures...'
+                echo 'Triggering security scan engine via standalone pipeline execution...'
                 script {
-                    sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v \$HOME/.cache:/root/.cache/ -v \$(pwd):/apps aquasec/trivy:latest fs /apps/${SCAN_DIR} --severity HIGH,CRITICAL"
+                    // Downloads and executes Trivy natively inside the workspace without requiring Docker CLI inside Jenkins
+                    sh """
+                    curl -sfL https://githubusercontent.com | sh -s -- -b .
+                    ./trivy fs ${SCAN_DIR} --severity HIGH,CRITICAL
+                    """
                 }
             }
         }
@@ -25,7 +29,6 @@ pipeline {
         stage('Artifact Compilation & Build Verification') {
             steps {
                 echo 'Validating application composition matrices...'
-                // Code packaging runtimes occur during this execution phase
             }
         }
     }
