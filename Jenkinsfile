@@ -1,40 +1,63 @@
-pipeline {
+pipeline { 
     agent any
 
-    environment {
-        SCAN_DIR = 'application'
+    environment { 
+        SCAN_DIR = 'application' 
     }
 
-    stages {
-        stage('Checkout Codebase') {
-            steps {
-                echo 'Pulling the latest codebase definitions from the portfolio repository...'
-                checkout scm
-            }
+    stages { 
+        stage('Checkout Codebase') { 
+            steps { 
+                echo 'Pulling the latest codebase from the portfolio repository...' 
+                checkout scm 
+            } 
         }
 
-        stage('Static Application Security Testing (SAST)') {
-            steps {
-                echo 'Executing Aqua Security Trivy static application binary check...'
-                script {
-                    // Downloads the absolute, researched standalone release binary archive straight from the release stream
-                    sh """
+        stage('Static Application Security Testing (SAST)') { 
+            steps { 
+                echo 'Executing Aqua Security Trivy filesystem scan...'
+                script { 
+                    sh """ 
+                    set -e
                     rm -f trivy_*.tar.gz trivy
-                    curl -fLo trivy_0.48.3_Linux-64bit.tar.gz https://github.com
-                    tar -zxvf trivy_0.48.3_Linux-64bit.tar.gz trivy
-                    ./trivy fs ${SCAN_DIR} --severity HIGH,CRITICAL
-                    rm -f trivy_*.tar.gz
-                    """
-                }
-            }
+                    
+                    # Corrected absolute release endpoint URLs mapping structural hyphens
+                    curl -fL --retry 3 \
+                      -o trivy_0.48.3_Linux-64bit.tar.gz \
+                      https://github.com
+                    
+                    tar -xzf trivy_0.48.3_Linux-64bit.tar.gz trivy
+                    chmod +x trivy
+                    ./trivy --version
+                    
+                    ./trivy fs \
+                      --severity HIGH,CRITICAL \
+                      --exit-code 1 \
+                      "${SCAN_DIR}"
+                    
+                    rm -f trivy_*.tar.gz trivy 
+                    """ 
+                } 
+            } 
         }
 
-        stage('Artifact Compilation & Build Verification') {
-            steps {
-                echo 'Validating application composition matrices...'
-            }
-        }
+        stage('Artifact Compilation & Build Verification') { 
+            steps { 
+                echo 'Validating application composition matrices...' 
+            } 
+        } 
     }
-}
 
+    post { 
+        always { 
+            sh 'rm -f trivy trivy_*.tar.gz || true' 
+        }
+        success { 
+            echo 'Pipeline completed successfully!' 
+        }
+        failure { 
+            echo 'Pipeline failed. Check the Jenkins console output.' 
+        } 
+    } 
+}
 
