@@ -17,18 +17,21 @@ pipeline {
 
         stage('SAST - Trivy FS Scan') {
             steps {
-                // Kept your exact, verified working container volume structure completely untouched
-                sh '''
-                    [ -d "$WORKSPACE/$SCAN_DIR" ] || { echo "'$SCAN_DIR' not found in workspace:"; ls -la "$WORKSPACE"; exit 1; }
+                // Modified to use double-quotes (") inside sh block to allow dynamic shell interpolation
+                sh """
+                    [ -d "\$WORKSPACE/$SCAN_DIR" ] || { echo "'$SCAN_DIR' not found in workspace:"; ls -la "\$WORKSPACE"; exit 1; }
+
+                    # Dynamic container tracking bypasses hardcoded orchestration naming conflicts completely
+                    CONTAINER_ID=\$(docker ps -qf "name=jenkins-orchestrator")
 
                     docker run --rm \
-                      --volumes-from jenkins-orchestrator:ro \
+                      --volumes-from \${CONTAINER_ID}:ro \
                       -v trivy-cache:/root/.cache/ \
-                      $TRIVY_IMAGE fs "$WORKSPACE/$SCAN_DIR" \
+                      $TRIVY_IMAGE fs "\$WORKSPACE/$SCAN_DIR" \
                       --severity HIGH,CRITICAL \
                       --exit-code 1 \
                       --no-progress
-                '''
+                """
             }
         }
 
@@ -37,16 +40,22 @@ pipeline {
                 // Securely pulls your token from the Jenkins credentials vault dynamically on execution
                 withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
                     echo 'Spawning SonarQube container scanner using native workspace volume attachments...'
-                    sh '''
+                    // FIX: Replaced literal single quotes with double quotes (") to unblock Groovy environment variable translation
+                    sh """
+                        CONTAINER_ID=\$(docker ps -qf "name=jenkins-orchestrator")
+
                         docker run --rm \
-                          --volumes-from jenkins-orchestrator:ro \
-                          sonarsource/sonar-scanner-cli:latest \
-                          -Dsonar.host.url="${SONAR_URL}" \
-                          -Dsonar.token="${SONAR_TOKEN}" \
+                          --volumes-from \${CONTAINER_ID}:ro \
+                          -w "\$WORKSPACE/$SCAN_DIR" \
+                          -e SONAR_HOST_URL="${SONAR_URL}" \
+                          -e SONAR_TOKEN="${SONAR_TOKEN}" \
+                          sonarsource/sonar-scanner-cli:11 \
                           -Dsonar.projectKey=devsecops-eks-project \
                           -Dsonar.projectName=devsecops-eks-project \
-                          -Dsonar.sources="$WORKSPACE/$SCAN_DIR"
-                    '''
+                          -Dsonar.projectBaseDir="\$WORKSPACE/$SCAN_DIR" \
+                          -Dsonar.sources=. \
+                          -Dsonar.working.directory=/tmp/.scannerwork
+                    """
                 }
             }
         }
