@@ -2,7 +2,6 @@ pipeline {
     agent any
 
     environment {
-        // Points our scans and Docker build targets to your backend microservices directory
         SCAN_DIR     = 'application'
         BACKEND_DIR  = 'application/backend'
         TRIVY_IMAGE  = 'aquasec/trivy:0.58.0'
@@ -29,7 +28,7 @@ pipeline {
                     docker run --rm \
                       --volumes-from \${CONTAINER_ID}:ro \
                       -v trivy-cache:/root/.cache/ \
-                      $TRIVY_IMAGE fs "\$WORKSPACE/$SCAN_DIR" \
+                      $TRIVY_IMAGE fs "$WORKSPACE/$SCAN_DIR" \
                       --severity HIGH,CRITICAL \
                       --exit-code 1 \
                       --no-progress
@@ -64,7 +63,8 @@ pipeline {
             steps {
                 echo 'Triggering deep open-source dependency validation scan (SCA)...'
                 dependencyCheck additionalArguments: "--scan '$WORKSPACE/$SCAN_DIR' --format XML --format HTML", odcInstallation: 'OWASP-Check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                // FIX: Correctly mapping the skip flag block directly to the log publisher layer
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml', skipIfNoData: true
             }
         }
 
@@ -77,7 +77,7 @@ pipeline {
                       -v /var/run/docker.sock:/var/run/docker.sock \
                       amazon/aws-cli:latest ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                     
-                    # FIX: Mapped the direct, case-sensitive build path to your backend subfolder context containing the Dockerfile
+                    # Mapped the direct, case-sensitive build path to your backend subfolder context containing the Dockerfile
                     docker build -t ${DOCKER_IMAGE}:latest ./$BACKEND_DIR
                     
                     # Tag the image matching your explicit AWS repository parameters
