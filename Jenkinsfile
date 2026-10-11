@@ -2,10 +2,14 @@ pipeline {
     agent any
 
     environment {
-        SCAN_DIR    = 'application'
-        TRIVY_IMAGE = 'aquasec/trivy:0.58.0'
-        // Tells the script where your SonarQube metrics portal is listening on the cloud host network
-        SONAR_URL   = 'http://3.106.210.243:9000'
+        SCAN_DIR     = 'application'
+        TRIVY_IMAGE  = 'aquasec/trivy:0.58.0'
+        SONAR_URL    = 'http://3.106.210.243:9000'
+        AWS_REGION   = 'ap-southeast-2'
+        // Natively mapped your verified 12-digit AWS Account ID
+        AWS_ACCOUNT  = '821224640841' 
+        ECR_REGISTRY = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        DOCKER_IMAGE = "devsecops-app"
     }
 
     stages {
@@ -17,11 +21,8 @@ pipeline {
 
         stage('SAST - Trivy FS Scan') {
             steps {
-                // Modified to use double-quotes (") inside sh block to allow dynamic shell interpolation
                 sh """
                     [ -d "\$WORKSPACE/$SCAN_DIR" ] || { echo "'$SCAN_DIR' not found in workspace:"; ls -la "\$WORKSPACE"; exit 1; }
-
-                    # Dynamic container tracking bypasses hardcoded orchestration naming conflicts completely
                     CONTAINER_ID=\$(docker ps -qf "name=jenkins-orchestrator")
 
                     docker run --rm \
@@ -37,10 +38,8 @@ pipeline {
 
         stage('SonarQube Code Quality Analysis') {
             steps {
-                // Securely pulls your token from the Jenkins credentials vault dynamically on execution
                 withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
                     echo 'Spawning SonarQube container scanner using native workspace volume attachments...'
-                    // FIX: Replaced literal single quotes with double quotes (") to unblock Groovy environment variable translation
                     sh """
                         CONTAINER_ID=\$(docker ps -qf "name=jenkins-orchestrator")
 
@@ -60,19 +59,45 @@ pipeline {
             }
         }
 
-        stage('Artifact Compilation & Build Verification') {
+        stage('OWASP Dependency-Check Audit') {
             steps {
-                echo 'Validating application composition matrices...'
+                echo 'Triggering deep open-source dependency validation scan (SCA)...'
+                dependencyCheck additionalArguments: "--scan '$WORKSPACE/$SCAN_DIR' --format HTML", odcInstallation: 'OWASP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+
+        stage('Docker Image Construction & AWS ECR Push') {
+            steps {
+                echo 'Authenticating with AWS ECR and building production container image tags...'
+                sh """
+                    # Natively login to your AWS ECR Registry using your EC2 Instance profile clearance
+                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                    
+                    # Compile and build the Docker container image
+                    docker build -t ${DOCKER_IMAGE}:latest ./$SCAN_DIR
+                    
+                    # Tag the image matching your explicit AWS repository parameters
+                    docker tag ${DOCKER_IMAGE}:latest ${ECR_REGISTRY}/${DOCKER_IMAGE}:latest
+                    docker tag ${DOCKER_IMAGE}:latest ${ECR_REGISTRY}/${DOCKER_IMAGE}:\text{\${BUILD_NUMBER}}
+                    
+                    # Push the finalized artifacts securely to AWS ECR
+                    docker push ${ECR_REGISTRY}/${DOCKER_IMAGE}:latest
+                    docker push ${ECR_REGISTRY}/${DOCKER_IMAGE}:\text{\${BUILD_NUMBER}}
+                    
+                    # Clean up local image cache references to keep storage light
+                    docker rmi ${ECR_REGISTRY}/${DOCKER_IMAGE}:latest ${ECR_REGISTRY}/${DOCKER_IMAGE}:\text{\${BUILD_NUMBER}}
+                """
             }
         }
     }
 
     post {
         success { 
-            echo 'Pipeline succeeded. Security gate and code quality checks passed completely!' 
+            echo 'Pipeline succeeded. Security gate, quality checks, and AWS ECR image delivery completed cleanly!' 
         }
         failure { 
-            echo 'Pipeline failed. Check console logs for scan errors, quality breaches, or vulnerabilities.' 
+            echo 'Pipeline execution failure encountered. Inspect the Jenkins console logs for details.' 
         }
     }
 }
