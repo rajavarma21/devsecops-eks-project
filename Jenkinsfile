@@ -2,7 +2,9 @@ pipeline {
     agent any
 
     environment {
+        // Points our scans and Docker build targets to your backend microservices directory
         SCAN_DIR     = 'application'
+        BACKEND_DIR  = 'application/backend'
         TRIVY_IMAGE  = 'aquasec/trivy:0.58.0'
         SONAR_URL    = 'http://3.106.210.243:9000'
         AWS_REGION   = 'ap-southeast-2'
@@ -61,9 +63,8 @@ pipeline {
         stage('OWASP Dependency-Check Audit') {
             steps {
                 echo 'Triggering deep open-source dependency validation scan (SCA)...'
-                // FIX: Added XML format parameter generation and configured the pipeline to gracefully log zero findings without failing
                 dependencyCheck additionalArguments: "--scan '$WORKSPACE/$SCAN_DIR' --format XML --format HTML", odcInstallation: 'OWASP-Check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml', skipIfNoData: true
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
 
@@ -71,13 +72,13 @@ pipeline {
             steps {
                 echo 'Authenticating with AWS ECR and building production container image tags...'
                 sh """
-                    # FIX: Running the AWS CLI login loop securely inside a temporary host container to bypass the internal image package limits
+                    # Running the AWS CLI login loop securely inside a temporary host container to bypass internal image limits
                     docker run --rm \
                       -v /var/run/docker.sock:/var/run/docker.sock \
                       amazon/aws-cli:latest ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
                     
-                    # Compile and build the Docker container image
-                    docker build -t ${DOCKER_IMAGE}:latest ./$SCAN_DIR
+                    # FIX: Mapped the direct, case-sensitive build path to your backend subfolder context containing the Dockerfile
+                    docker build -t ${DOCKER_IMAGE}:latest ./$BACKEND_DIR
                     
                     # Tag the image matching your explicit AWS repository parameters
                     docker tag ${DOCKER_IMAGE}:latest ${ECR_REGISTRY}/${DOCKER_IMAGE}:latest
@@ -88,7 +89,7 @@ pipeline {
                     docker push ${ECR_REGISTRY}/${DOCKER_IMAGE}:\${BUILD_NUMBER}
                     
                     # Clean up local image cache references to keep storage light
-                    docker rmi ${ECR_REGISTRY}/${DOCKER_IMAGE}:latest ${ECR_REGISTRY}/${DOCKER_IMAGE}:\text{\${BUILD_NUMBER}}
+                    docker rmi ${ECR_REGISTRY}/${DOCKER_IMAGE}:latest ${ECR_REGISTRY}/${DOCKER_IMAGE}:\${BUILD_NUMBER}
                 """
             }
         }
