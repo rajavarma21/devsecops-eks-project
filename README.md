@@ -14,7 +14,7 @@ This project demonstrates an end-to-end DevSecOps and GitOps implementation for 
 - SonarQube
 - OWASP Dependency-Check
 - Trivy
-- Docker Hub
+- ECS
 - Kubernetes
 - AWS EKS
 - Helm
