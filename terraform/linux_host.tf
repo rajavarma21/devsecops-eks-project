@@ -1,29 +1,63 @@
-# 1. Attach Production Firewall Access Rules directly using your Hardcoded Default VPC ID
-# Configure Production Firewall Access Rules
+# 1. Automatically generate a clean, secure cryptographic SSH Private Key
+resource "tls_private_key" "orchestrator_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+# 2. Register the generated Public Key signature natively into your AWS region console profile
+resource "aws_key_pair" "generated_key" {
+  key_name   = "devsecops-prod-key"
+  public_key = tls_private_key.orchestrator_key.public_key_openssh
+}
+
+# 3. Export the secure Private Key file (.pem) straight into your local directory space
+resource "local_file" "ssh_key_file" {
+  content         = tls_private_key.orchestrator_key.private_key_pem
+  filename        = "${path.module}/devsecops-prod-key.pem"
+  file_permission = "0600"
+}
+
+# 4. DYNAMIC AMI LOOKUP: Automatically fetches the verified, active Ubuntu 24.04 LTS image for your region
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  owners = ["099720109477"] # Official Canonical Owner ID
+}
+
+# 5. Provision the Main Security Ingress Group gateways
 resource "aws_security_group" "node_sg" {
   name        = "devsecops-prod-sg"
-  description = "Security group for production DevSecOps orchestration host"
-  vpc_id      = "vpc-001b49a92c6514440" # Your verified ap-southeast-2 Default VPC
+  description = "Orchestration host secure network routing parameters"
 
-   ingress {
+  ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Production SSH Maintenance Access
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Jenkins Web Console Ingress
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
     from_port   = 9000
     to_port     = 9000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # SonarQube Dashboard Ingress Gateway
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -32,48 +66,30 @@ resource "aws_security_group" "node_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = {
-    Name        = "devsecops-prod-sg"
-    Environment = "Production"
-  }
 }
-# 2. Provision Core Production DevSecOps Orchestration Engine Node
-resource "aws_instance" "devsecops_host" {
-  # Your explicitly verified Amazon Linux 2023 AMI for ap-southeast-2
-  ami           = "ami-0720cb7af233b0529" 
-  instance_type = "m7i-flex.large" # Using your account-approved instance type
 
-  # Places your machine directly inside your default corporate subnet track to bypass SCP blocks
-  subnet_id              = "subnet-0591d45598929c350" # Your verified ap-southeast-2a Subnet
+# 6. Spin up the Core Orchestration host instance mapping the dynamic AMI ID
+resource "aws_instance" "devsecops_host" {
+  instance_type          = "m7i-flex.large"
+  # Maps the dynamic lookup directly to bypass hardcoded string failures
+  ami                    = data.aws_ami.ubuntu.id 
+  
+  key_name               = aws_key_pair.generated_key.key_name
   vpc_security_group_ids = [aws_security_group.node_sg.id]
 
   root_block_device {
-    volume_size           = 30 
-    volume_type           = "gp3"
-    delete_on_termination = true
+    volume_size = 40
+    volume_type = "gp3"
   }
 
-  # Automatically bootstrap Docker and Kubernetes on your production Amazon Linux instance
-  user_data = <<-EOF
-              #!/bin/bash
-              sudo dnf update -y
-              sudo dnf install -y docker
-              sudo systemctl start docker
-              sudo systemctl enable docker
-              curl -sfL https://k3s.io | sh -
-              EOF
-
   tags = {
-    Name        = "devsecops-prod-orchestration-host"
-    Environment = "Production"
-    ManagedBy   = "Terraform"
+    Name    = "devsecops-prod-orchestration-host"
+    Project = "devsecops-eks-project"
   }
 }
 
-# 3. Output your Live Machine IP Address automatically upon successful build completion
+# 7. Output variables to easily read your connection endpoints
 output "production_host_public_ip" {
-  value       = aws_instance.devsecops_host.public_ip
-  description = "The public IP address of your production orchestration host machine."
+  value = aws_instance.devsecops_host.public_ip
 }
 
