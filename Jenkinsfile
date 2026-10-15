@@ -22,24 +22,21 @@ pipeline {
             steps {
                 echo 'Executing Aqua Security Trivy standalone filesystem scan...'
                 script {
-                    // Downloads and runs the standalone pre-compiled Trivy binary directly in the workspace
-                    // Bypasses 'docker: not found' issues inside the container
+                    // FIX: Uses the official, native curl installation loop targeting the true GitHub release artifacts repository path
                     sh """
-                    set -eu
-                    rm -f trivy trivy_*.tar.gz
-                    
-                    echo "Downloading stable Trivy binary package..."
-                    curl -fLo trivy_0.48.3_Linux-64bit.tar.gz https://github.com
-                    
-                    tar -zxvf trivy_0.48.3_Linux-64bit.tar.gz trivy
-                    chmod +x trivy
-                    
-                    ./trivy --version
-                    
-                    echo "Auditing codebase directory path: ${SCAN_DIR}..."
-                    ./trivy fs --severity HIGH,CRITICAL --exit-code 1 "${SCAN_DIR}"
-                    
-                    rm -f trivy_*.tar.gz trivy
+                        set -eu
+                        rm -rf bin/ trivy trivy_*.tar.gz
+                        
+                        echo "Fetching standalone Trivy engine framework..."
+                        curl -sfL https://githubusercontent.com | sh -s -- -b . v0.48.3
+                        
+                        echo "Verifying installation path..."
+                        ./trivy --version
+                        
+                        echo "Auditing codebase directory path: ${SCAN_DIR}..."
+                        ./trivy fs --severity HIGH,CRITICAL --exit-code 1 "${SCAN_DIR}"
+                        
+                        rm -rf bin/ trivy
                     """
                 }
             }
@@ -49,7 +46,6 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
                     echo 'Injecting SonarQube standalone scan parameters...'
-                    // We run the scan directly using the workspace parameters to avoid docker commands inside the container
                     sh """
                         echo "Skipping containerized scanner due to host isolation limits..."
                     """
@@ -81,7 +77,7 @@ pipeline {
 
     post {
         always {
-            sh 'rm -f trivy trivy_*.tar.gz || true'
+            sh 'rm -rf bin/ trivy || true'
         }
         success { 
             echo 'Pipeline succeeded. Continuous security parameters checked cleanly!' 
