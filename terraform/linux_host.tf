@@ -1,21 +1,29 @@
 # 1. Attach Production Firewall Access Rules directly using your Hardcoded Default VPC ID
+# Configure Production Firewall Access Rules
 resource "aws_security_group" "node_sg" {
   name        = "devsecops-prod-sg"
   description = "Security group for production DevSecOps orchestration host"
   vpc_id      = "vpc-001b49a92c6514440" # Your verified ap-southeast-2 Default VPC
 
-  ingress {
+   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Production SSH Maintenance Port Access
+    cidr_blocks = ["0.0.0.0/0"] # Production SSH Maintenance Access
   }
 
   ingress {
-    from_port   = 80
-    to_port     = 80
+    from_port   = 8080
+    to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Application Ingress Frontend Port
+    cidr_blocks = ["0.0.0.0/0"] # Jenkins Web Console Ingress
+  }
+
+  ingress {
+    from_port   = 9000
+    to_port     = 9000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # SonarQube Dashboard Ingress Gateway
   }
 
   egress {
@@ -30,7 +38,6 @@ resource "aws_security_group" "node_sg" {
     Environment = "Production"
   }
 }
-
 # 2. Provision Core Production DevSecOps Orchestration Engine Node
 resource "aws_instance" "devsecops_host" {
   # Your explicitly verified Amazon Linux 2023 AMI for ap-southeast-2
